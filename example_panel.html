@@ -1,0 +1,467 @@
+<html>
+	<head>
+		<meta name="viewport" content="width=100%, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <meta charset="UTF-8">
+		<title>Example ESP32 HTTP+HTML+JS Panel (Pure JS, no libs needed!)</title>
+<style>
+.leftSide, .rightSide {
+	float:left;
+	width:50%;
+	box-sizing:border-box;
+}
+.leftSide {
+}
+.rightSide {}
+#d {
+	overflow-y:auto;
+	max-height:50vh;
+}
+/* https://github.com/m5it/html_js_4_fun_slid3r */
+.slider {
+    position:absolute;
+    display:inline-block;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+}
+.slider > div {
+    position:relative;
+}
+.slider .field {
+    display:inline-block;
+}
+.slider .field:not(.active) {
+    scroll-behavior: smooth;
+}
+.slider .info {
+    position:absolute;
+    padding: 2px;
+    color: black;
+    font-size: 0.7em;
+    white-space:nowrap;
+}
+/* horizontal */
+.slider.hor .field {
+    width:200px;
+    height:56px;
+    overflow-x:scroll;
+    overflow-y: hidden;
+}
+.slider.hor > div:before, .slider.hor > div:after, .slider.ver > div:before, .slider.ver > div:after {
+    position:absolute;
+    padding:2px;
+    color:black;
+    background:gray;
+    box-shadow:0px 0px 2px 1px lightgray;
+    font-size:0.7em;
+}
+.slider.hor > div:before {
+    left:0px;
+    top:-18px;
+    content:"LEFT";
+}
+.slider.hor > div:after {
+    right:0px;
+    top:-18px;
+    content:"RIGHT";
+}
+.slider.hor .info {
+    top: -20px;
+    left: 50%;
+    transform: translate(-50%,0px);
+}
+
+/* vertical */
+.slider.ver .field {
+    height:200px;
+    width:56px;
+    overflow-y:scroll;
+    overflow-x: hidden;
+}
+.slider.ver > div:before {
+    top:0px;
+    left:60px;
+    content:"FORWARD";
+}
+.slider.ver > div:after {
+    bottom:0px;
+    left:60px;
+    content:"BACKWARD";
+}
+.slider.ver .info {
+    top: 50%;
+    left:60px;
+    transform: translate(0px,-50%);
+}
+.slider.hor .space {
+    width:400%;
+    display:inline-block;
+    height:55px;
+}
+.slider.ver .space {
+    height:400%;
+    display:inline-block;
+    width:55px;
+}
+.slider.ver .cover, .slider.hor .cover {
+	position:absolute;
+	top:0px;
+	left:0px;
+	right:0px;
+	bottom:0px;
+	z-index:2;
+}
+/**/
+.scrollit::-webkit-scrollbar {
+  width: 55px;
+  height:55px;
+}
+.scrollit {
+  scrollbar-width: 20px;
+  scrollbar-color: green orange;
+}
+.scrollit::-webkit-scrollbar-track {
+  background: lightgray;
+  border-radius:13px;
+}
+.scrollit::-webkit-scrollbar-thumb {
+  background-color: black;
+  border-radius: none;
+  border: none;
+  min-height:60px;
+  border-radius:13px;
+}
+</style>
+
+<script>
+/**
+  * 4.10.22 (pure JS)
+  * ------------------------------------------------------------
+  * https://github.com/m5it/html_js_4_fun_slid3r
+  * ------------------------------------------------------------
+  * Slid3r() thing by t3ch aka B.K. aka grandekos etc...
+  --------------------------------------------------------
+  * first time used to control remote car with mobile and ESP32 wroom
+  --------------------------------------------------------------
+  * Example usage:
+  * (new Slid3r({
+  *      doubleside:true,
+  *      element   :document.querySelector(".slider.hor .field"),
+  *      onscroll  :function(H) {
+  *          document.querySelector(".slider.hor .info").innerText = H.getResult()+" speed.";
+  *      },
+  *  }));
+  * 
+  */
+var Slid3r = function( opt ) {
+	//
+	var opt_elm        = ( typeof(opt)=='object' && typeof(opt['element'])!='undefined'?opt.element:null );
+	var opt_onscroll   = ( typeof(opt)=='object' && typeof(opt['onscroll'])=='function'?opt.onscroll:null );
+	var opt_onstart    = ( typeof(opt)=='object' && typeof(opt['onstart'])=='function'?opt.onstart:null );
+	var opt_onend      = ( typeof(opt)=='object' && typeof(opt['onend'])=='function'?opt.onend:null );
+	var opt_onended    = ( typeof(opt)=='object' && typeof(opt['onended'])=='function'?opt.onended:null );
+	var opt_vertical   = ( typeof(opt)=='object' && typeof(opt['vertical'])!='undefined'?opt.vertical:false );     // default=false=horisontal OR vertical=true
+	var opt_doubleside = ( typeof(opt)=='object' && typeof(opt['doubleside'])!='undefined'?opt.doubleside:false ); // doubleside=true then cursor is centered in middle=0, bottom=-255, top=255 or horizontal left,right,center..
+	var opt_maxresult  = ( typeof(opt)=='object' && typeof(opt['maxresult'])!='undefined'?opt.maxresult:255 );
+	var opt_mobile     = ( typeof(opt)=='object' && typeof(opt['mobile'])!='undefined'?opt.mobile:false );
+	
+	//
+	if( opt_elm==null ) {
+		console.warn("Error: you didn't define opt.element.",opt);
+		return false;
+	}
+	//
+	var _this      = this,
+	    sWH        = null/*scrollWidth|scrollHeight -> depend on opt_vertical*/, 
+	    oWH        = null/*offsetWidth|offsetHeight -> depend on opt_vertical*/, 
+	    sTL        = null/*scrollLeft|scrollTop     -> depend on opt_vertical*/, 
+	    pR         = null/*calculate percentage*/, 
+	    valueOfOne = null, 
+	    result     = 0,
+	    scrollSize = null/*size of scroll space*/,
+	    // events when fired scroll is centered. (opt_doubleside=true)
+	    events     = (opt_mobile?["touchend","touchstart","touchmove",]:["mouseup","mousedown","mousemove",]),
+	    check_ended=false,
+	    tmp_elm    = opt_elm.querySelector(".cover");
+	//
+	this.scrollSpeed = (opt_vertical?(opt_elm.scrollHeight/100)-(opt_elm.offsetHeight/100):(opt_elm.scrollWidth/100)-(opt_elm.offsetWidth/100));
+	//
+	console.info("Slid3r() DEBUG scrollSpeed: "+_this.scrollSpeed+", tmp_elm",tmp_elm);
+	//
+	this.getResult = function() {
+		return result;
+	}
+	//
+	function calcResult() {
+		scrollSize = sWH - oWH;
+		//
+		if( opt_doubleside ) {
+			var tmp = 0;
+			if( sTL<( scrollSize/2 ) ) {
+				tmp =  (scrollSize/2)-sTL;
+			}
+			else {
+				tmp =  sTL-(scrollSize/2);
+			}
+			pR = ((tmp*2)*100)/(sWH-oWH);
+		}
+		else {
+			pR = (sTL*100)/(sWH-oWH);         // current percent depend on scrollWidth
+		}
+		result = Math.ceil(Math.round(pR)*valueOfOne);
+		// Make value negative so we know what side scroll is dragged
+		if( opt_doubleside && ((!opt_vertical && sTL<( scrollSize/2 )) || (opt_vertical && sTL>( scrollSize/2 ))) ) {
+			result = result * (-1);
+		}
+	}
+	//
+	function centerScroll() {
+		console.info("Slid3r()->centerScroll() start.");
+		//
+		if( opt_vertical ) opt_elm.scrollTop  = scrollSize/2;
+		else               opt_elm.scrollLeft = scrollSize/2;
+	}
+	//
+	function onEnd() {
+		opt_elm.classList.remove("active");
+		//
+        if(opt_doubleside) {
+            centerScroll();
+        }
+        touch = null;
+        start = false;
+        //
+        if     (opt_onend!=null) {
+            opt_onend(_this);
+            check_ended = true;
+        }
+	}
+	//
+	sWH        = (opt_vertical?opt_elm.scrollHeight:opt_elm.scrollWidth);
+	oWH        = (opt_vertical?opt_elm.offsetHeight:opt_elm.offsetWidth);
+	sTL        = (opt_vertical?opt_elm.scrollTop:opt_elm.scrollLeft);
+	valueOfOne = opt_maxresult/100;    // 255 = max analog value, 100 = percent
+	calcResult();
+	
+	// on initialization, Center cursor if double side
+	if( opt_doubleside ) {
+		centerScroll();
+	}
+	
+	var touches = null;
+	var touchn  = 0;
+	var X=0,Y=0;
+	var start=false;
+	
+	// init events to center scroll when button is released
+	for(var i=0; i<events.length;i++) {
+		(function(i) {
+			console.info("Slid3r() initializing event: ",events[i]);
+			//
+			tmp_elm.addEventListener(events[i],function(e) {
+				if(e.type=="touchstart"||e.type=="mousedown") {
+					//
+					opt_elm.classList.add("active");
+					check_ended = false;
+					//
+					X=0, Y=0;
+					start=true;
+					//
+					if(e.type=="touchstart") {
+					    touches = e.touches || e.changedTouches;
+					    if     (touches.length>0) {
+							touchn = touches.length-1;
+						    //var touch   = e.touches[0] || e.changedTouches[0];
+						    var touch   = e.touches[touchn] || e.changedTouches[touchn];
+			                X = touch.pageX; 
+			                Y = touch.pageY;
+						}
+						console.info("Slid3r() touchstart touches.length: "+touches.length+", touchn: "+touchn+", touch: ",touch);
+					}
+					else {
+						X = e.pageX;
+						Y = e.pageY;
+						console.info("Slid3r() mousedown started. x: "+X+", y: "+Y);
+					}
+					//
+					if(opt_onstart!=null) opt_onstart(_this);
+				}
+				else if( e.type=="touchend" || e.type=="mouseup" ) {
+					if(!start) return false;
+					//
+					e.preventDefault();
+					onEnd();
+				}
+				//
+				else if( e.type=="touchmove" || e.type=="mousemove" ) {
+					if(!start) return false;
+					//
+					e.preventDefault();
+		
+					//
+					var x=0,y=0;
+					
+					if( e.type=="touchmove" ) {
+						//
+						var curtouches = e.touches || e.changedTouches;
+						//var touch = e.touches[0] || e.changedTouches[0];
+						var touch = e.touches[touchn] || e.changedTouches[touchn];
+			            x = touch.pageX;
+			            y = touch.pageY;
+					}
+					else {
+						x = e.pageX;
+						y = e.pageY;
+					}
+	                //-- calc moved distance in px from previous move or first mousedown/touch
+	                var nx = x-X;
+	                var ny = y-Y;
+	                //
+	                if( opt_vertical ) {
+						opt_elm.scrollTop = (opt_elm.scrollTop + (ny*_this.scrollSpeed));
+					}
+					else {
+						opt_elm.scrollLeft = (opt_elm.scrollLeft + (nx*_this.scrollSpeed));
+					}
+					//
+					X=x;
+	                Y=y;
+				}
+			});
+		})(i);
+	}
+	
+	//
+	if(!opt_mobile) {
+		document.addEventListener("mouseup",function(e) {
+			//
+			e.preventDefault();
+			if( start ) onEnd();
+		});
+	}
+	
+	// init onscroll event.
+	opt_elm.onscroll = function(e) {
+		//
+		sWH     = (opt_vertical?opt_elm.scrollHeight:opt_elm.scrollWidth);
+		oWH     = (opt_vertical?opt_elm.offsetHeight:opt_elm.offsetWidth);
+		sTL     = (opt_vertical?opt_elm.scrollTop:opt_elm.scrollLeft);
+		//
+		calcResult();
+		
+		//console.warn("Slid3r() sWH: "+sWH+", oWH: "+oWH+", sTL: "+sTL+", valueOfOne: "+valueOfOne+", pR: "+pR+", result: "+result);
+		//
+		if( check_ended && result==0 && opt_onended!=null ) opt_onended(_this);
+		// Fire opt_onscroll() if defined.
+		if(opt_onscroll!=null) opt_onscroll(_this);
+	}
+}
+
+//
+function qS(s) {return document.querySelector(s);}
+function iN(d) {var e=document.createElement('div');e.innerHTML = (new Date().toJSON())+" => "+JSON.stringify(d);qS("#d").prepend(e);}
+function Fetch( opt ) {
+	var href="";
+	if( typeof(opt)!='undefined' && typeof(opt['href'])!='undefined' ) {
+		href = opt.href;
+	}
+	else return;
+	//
+	fetch(href+(href.match(/\?/i)?"&":"?"), {  
+	    method :'GET',
+	    cache:'no-store',
+	    headers:new Headers({'content-type': 'application/json'}), 
+    }).then(function (data) {
+		return data.json();
+	}).then(function(json) {
+		//
+		if( typeof(opt)!='undefined' && typeof(opt["onDone"])=='function' ) {
+			opt.onDone( json );
+		}
+		else {
+			console.info("Fetch() opt.onDone() not defined!",json);
+		}
+	}).catch(function(E) {
+		console.warn("Fetch() ERROR: ",E);
+		// What to do on ERROR ? We will see...
+	});
+}
+//
+function onLoad(e) {
+	//
+	if( document.location.pathname!="/" || document.location.search!="" ) {
+		window.history.replaceState({},"","/");
+	}
+	//
+	var slider = new Slid3r({
+		element:qS(".slider.hor .field"),
+		onscroll:function(H) {
+			console.info("Slid3r.onscroll() ",H.getResult());
+			qS(".slider.hor .info").innerText = H.getResult()+" speed.";
+			//
+			Fetch({
+				href:document.location.origin+"/MOTOR_A_SPEED?speed="+H.getResult()+"&paramKey=%2FMOTOR_A_SPEED",
+			});
+		},
+	});
+	//
+	qS(".slider.hor .info").innerText = slider.getResult()+" speed.";
+	//
+	qS("a[href='/reset']").addEventListener("click",function(e) {
+		e.preventDefault();
+		Fetch({href:"/reset",onDone:function(json){setTimeout(function(){console.info(json);document.location.href=document.location.href;},1000);},});
+		e.stopPropagation();
+		return false;
+	});
+}
+window.onload = function(e) { onLoad(e); }
+</script>
+	</head>
+	
+	<body>
+		
+		<div align="center">
+			<a href="/reset" style="float:left;">Reset panel</a>
+			<div style="clear:both;"></div>
+			<h3>Example of simple html control panel for Arduino or ESP32...</h3>
+		</div>
+		
+		<br>
+		
+		<!-- left side is used to move car left and right -->
+		<div class="leftSide">
+			
+			<div>
+				<div><a href="/MOTOR_A_ON?paramKey=%2FMOTOR_A_ON" onclick="Fetch({href:this.href,onDone:function(json){iN(json);console.info('start motor data: ',json);},});return false;">Start motor A</a></div>
+				<div style="position:relative;height:60px;">
+					<div class="slider hor">
+						<div>
+							<div class="field scrollit">
+								<div class="cover"></div>
+								<div class="space"></div>
+								<div class="info"></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			
+			<a href="/MOTOR_A_OFF?paramKey=%2FMOTOR_A_OFF" onclick="Fetch({href:this.href,onDone:function(json){iN(json);console.info('stop motor data: ',json);},});return false;">Stop motor A</a> <br>
+			<a href="/BATTERY_LEVEL?paramKey=%2FBATTERY_LEVEL" onclick="Fetch({href:this.href,onDone:function(json){iN(json);console.info('battery level data: ',json);},});return false;">Check Battery Level</a> <br>
+			<a href="/DHTT?paramKey=%2FDHTT" onclick="Fetch({href:this.href,onDone:function(json){iN(json);console.info('temperature data: ',json);},});return false;">Check Temperature with DHT11</a> <br>
+			<a href="/DHTH?paramKey=%2FDHTH" onclick="Fetch({href:this.href,onDone:function(json){iN(json);console.info('humidity data: ',json);},});return false;">Check Humidity with DHT11</a> <br>
+		</div>
+		
+		<!-- right side is used to move car infront and back -->
+		<div class="rightSide">
+			<div id="d"></div>
+		</div>
+		
+		<div style="position:fixed;bottom:0px;left:0px;right:0px;text-align:center;">
+	        <h6 style="margin:0px;">If you like our projects consider donating.</h6>
+	        <h4 style="margin:0px;">Donate - Welcome - Thanks!</h4>
+	        <a href="https://www.paypal.com/donate/?hosted_button_id=QGRYL4SL5N4FE"> Donate - Donar - Spenden - Daruj - пожертвовать - दान करना - 捐 - 寄付</a>
+        </div>
+	</body>
+</html>

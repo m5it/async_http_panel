@@ -1,0 +1,97 @@
+<html>
+<head>
+	<meta name="viewport" content="width=100%, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+	<title>Upload arduino control panel.</title>
+<style>
+.up {}
+.up.actionDone {}
+.up.actionDone .info {}
+.up.actionDone .info:before {
+	content:"(up, DONE)";
+}
+.upc {}
+.upc.actionDone {}
+.upc.actionDone .info {}
+.upc.actionDone .info:before {
+	content:"(upc, DONE)";
+}
+.info {
+	position:relative;
+}
+.info:before {
+	position:absolute;
+	top:50%;
+	right:-13px;
+	transform:translate(-50%,13px);
+	font-weight:bolder;
+}
+</style>
+</head>
+<body>
+<script>
+function loadFile(fp) {
+	var type=fp.attributes.attrtype.nodeValue;
+	if(fp.files && fp.files[0]) {
+		var f  = fp.files[0]; var fd = new FormData();
+		fd.append("file",f);
+		fetch("/"+type,{method:"POST",body:fd}).then(function(response) {
+			console.info(type+" response",response);
+			document.location.href=document.location.href;
+		}).catch(function(E) {
+			console.warn("ERROR "+type,E);
+		});
+	}
+	else {
+		console.warn("Something went wrong.");
+	}
+}
+function onLoad(e) {
+	//
+	if( document.location.pathname!="/" || document.location.search!="" ) {
+		window.history.replaceState({},"","/");
+	}
+	//
+	fetch("/status",{method:"GET"}).then(function(response) {
+		console.info("status response",response);
+		return response.json();
+	}).then(function(json) {
+		console.info("status json",json);
+		if( json.upc_done ) {
+			document.querySelector(".upc").classList.add("actionDone");
+			document.querySelector(".upc input").setAttribute("disabled","disabled");
+		}
+		if( json.up_done ) {
+			document.querySelector(".up").classList.add("actionDone");
+			document.querySelector(".up input").setAttribute("disabled","disabled");
+		}
+	}).catch(function(E) {
+		console.warn("ERROR status",E);
+	});
+}
+window.onload = function(e) { onLoad(e); }
+</script>
+
+<h3><a href="/">Home</a></h3>
+<br>
+<br>
+
+<div>
+	
+	<div class="up" style="float:left;width:50%;box-sizing:border-box;">
+		<div class="info">Choose control panel (HTML): </div>
+		<form method="POST">
+			<input type="file" onchange="loadFile(this);" attrType="up">
+		</form>
+	</div>
+	<div class="upc" style="float:left;width:50%;box-sizing:border-box;">
+		<div class="info">Choose configuration for panel (JSON): </div>
+		<form method="POST">
+			<input type="file" onchange="loadFile(this);" attrType="upc">
+		</form>
+	</div>
+	<div style="clear:both;"></div>
+	
+</div>
+
+</body>
+</html>
